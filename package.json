@@ -1,0 +1,19 @@
+{
+  "name": "sim800-interface",
+  "version": "1.0.0",
+  "description": "SIM800-Interface",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Xsmael/SIM800-Interface.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Xsmael/SIM800-Interface/issues"
+  },
+  "homepage": "https://github.com/Xsmael/SIM800-Interface#readme"
+}
