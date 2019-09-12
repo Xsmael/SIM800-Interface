@@ -15,5 +15,9 @@
   "bugs": {
     "url": "https://github.com/Xsmael/SIM800-Interface/issues"
   },
-  "homepage": "https://github.com/Xsmael/SIM800-Interface#readme"
+  "homepage": "https://github.com/Xsmael/SIM800-Interface#readme",
+  "dependencies": {
+    "noogger": "^0.1.8",
+    "serialport-gsm": "^3.2.0"
+  }
 }
