@@ -1,18 +1,3 @@
 {
-    "FAYE_PORT": 8888,
-    "DB_RECONNECTION_TIMEOUT": 2000,
-    "GSM_STATUS_UPDATE_TIMEOUT": 5000,
-    "DB_CONFIG": {
-        "host": "localhost",
-        "user": "root",
-        "password": "",
-        "database": "smsbox"
-    },
-    "NEOGATE_CONFIG": {
-        "ip": "192.168.3.227",
-        "port": "5038",
-        "apiuser": "apiuser",
-        "apipass": "apipass"
-    },
-    "FAILED_SMS_FILE": "failed_sms"
+
 }
