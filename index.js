@@ -9,6 +9,9 @@ var log = require("noogger");
 let serialportgsm = require('serialport-gsm');
 const ussd = require('serialport-gsm/lib/functions/ussd');
 
+var EventEmitter = require('events').EventEmitter;
+var eventEmitter = new EventEmitter();
+
 var modemArray={};
 var modemArrayInfo={};
 var CONFIG= {
@@ -28,8 +31,6 @@ let options = {
     enableConcatenation: true,
     incomingCallIndication: true,
     incomingSMSIndication: true,
-    pin: '',
-    customInitCommand: ''
 };
 
 scanSerialPorts();
@@ -60,7 +61,7 @@ function scanSerialPorts() {
             }
         });
 
-        if(occupiedPorts.length>0) { // these are ports that were p reviously used but no more, gotta clean!
+        if(occupiedPorts.length>0) { // these are ports were previously used but no more, gotta clean!
             occupiedPorts.forEach(port => {
                 modemArray[port].close( (msg)=>{
                     log.notice("modem at "+port+" is disconnected closing... msg:"+msg);
@@ -69,8 +70,9 @@ function scanSerialPorts() {
                 });
             });
         }
-        console.log(result);
-        log.warning(modemArrayInfo);
+        // console.log(result);
+        // log.warning(modemArrayInfo);
+        eventEmitter.emit("siminfo",modemArrayInfo);
     });
 }
 
@@ -80,9 +82,35 @@ function portHasGSMModule(comPort) {
 
 function addModem(serialPort) {
     let modem = serialportgsm.Modem();
-    modem.clo
     modem.info={};
     ussd(modem);
+    // modem.clo
+    modem.on('close', data => { 
+        log.warning( modem.info.serialPort + " Modem closed\nReason: "+data);
+     })
+    modem.on('error', data => { 
+        log.error( modem.info.serialPort + " ERROR: "+ data);
+     })
+    modem.on('onNewMessage', function (data) {
+        log.warning("NEW MESSAGE");
+        log.debug(data); 
+        eventEmitter.emit("SMSReceived", {
+            id: "NA",
+            port: modem.info.serialPort,
+            sender: data.sender,
+            time: data.dateTimeSent,
+            index: data.index,
+            content: data.message,
+            smsc: data.header.smsc
+        });
+    });
+    
+    modem.on('onMemoryFull', (result) => { 
+        log.warning("MEM FULLL");
+        log.debug(result); 
+    });
+
+    
     modem.open(serialPort, options);
     modem.on('open', data => {
         log.notice("Modem on "+serialPort+" Opened !");
@@ -92,6 +120,7 @@ function addModem(serialPort) {
                 log.error(initResult);
                 log.warning("Failed to Initialise modem on "+serialPort);
             } else { 
+                eventEmitter.emit("ready");
                 log.notice("Modem on "+serialPort+" Initialised!");
                 modem.info.serialPort= serialPort;
                 
@@ -156,6 +185,8 @@ function addModem(serialPort) {
             }
         });     
     }); 
+
+    
 }
 
 function getNMCDetailsFromIMSI(IMSI) {
@@ -170,50 +201,141 @@ function getNMCDetailsFromIMSI(IMSI) {
 function getModem(port) {
     return modemArray[port];
 }
-function sendUSSD(code,port) {
+function sendUSSD(USSD,port, callb) {
+    log.warning("sending USSD");
     let modem= getModem(port);
-    modem.sendUSSD('*101#').then(
-        (success)=>{console.log(success)},
-        (fail)=>{console.log(fail)});
+    
+    let commandParser = modem.executeCommand('AT+CUSD=1,"'+USSD+'"', (result, err) => {
+        if (err) {
+            console.error(`Error`, err);
+        } else {
+            console.log(`Result`, result);
+            if(result.status == 'success') {
+                log.debug(commandParser.result);    
+                callb(result.data, result.status, port);                    
+            }
+        }
+    });
+    
+    commandParser.result = {};
+    commandParser.logic = dataLine => {
+        // log.critical(dataLine);
+        if (dataLine) {
+            if (dataLine.startsWith("AT+CUSD=1")) {
+                commandParser.result.command = dataLine.trim();
+            } else if (dataLine.startsWith("+CUSD: 0,") ) {
+                let startIdx= dataLine.indexOf('"')+1;
+                let length= dataLine.indexOf('"', dataLine.length-5) - startIdx;
+                log.notice("startIdx= "+startIdx +" length= "+ length);
+                commandParser.result.content =      dataLine.substr(startIdx, length);
+                commandParser.result.response = dataLine.trim();
+            }
+            
+            if( dataLine.endsWith('+CUSD: 0, "MSISDN:') ) {
+                commandParser.result.content = "--MSISDN:"
+                commandParser.result.response = '+CUSD: 0, "MSISDN:';            
+            }
+            if( dataLine.endsWith('", 15') &&  commandParser.result.content ==  "--MSISDN:") {
+                commandParser.result.content = "MSISDN: " + dataLine.replace('", 15','');
+                commandParser.result.response = '+CUSD: 0, "MSISDN:'+ dataLine;
+            
+            }
+        }
+            if (dataLine.endsWith('15')) {
+            return {
+                resultData: {
+                    status: 'success',
+                    request: 'executeCommand',
+                    data: commandParser.result
+                },
+                returnResult: true,
+            };
+        } else if (dataLine.includes('+CUSD: 2') || dataLine.includes('COMMAND NOT SUPPORT')) {
+            return {
+                resultData: {
+                    status: 'failed',
+                    request: 'executeCommand',
+                    data: `Execute Command returned Error: ${dataLine}`,
+                },
+                returnResult: true,
+            };
+        }
+    }; 
 }
 
 function sendSMS(sms,port) {
     log.warning("sending SMS");
+    let smsId= generateToken();
     let modem= getModem(port);
-    modem.sendSMS(sms.destinator,sms.content, false, function(p) {
-        log.debug(p);
+    modem.sendSMS(sms.destinator,sms.content, true, smsId, function(info) {       
+        if (info.data.response == "Message Successfully Sent") {
+            log.debug(info);
+            eventEmitter.emit("SMSUpdate",{ 
+                id: info.data.messaegeId,
+                sent: (info.status == 'success') ? 1 : 0,
+                smsc: '' 
+            });
+        }            
     });
-    // return smsId;    
+    return smsId;    
 }
 
 
 setTimeout(() => {
-    sendSMS({
+    sendUSSD("*99#","COM15", (result,status,port) => {
+        log.debug(result.data);
+        let success= (status == 'success') ? true : false;
+        eventEmitter.emit("USSDResponse",{content: result.data, success:success , port: port});
+    });
+    let smsId= sendSMS({
         destinator:"52004896",
-        content: "HAHA"
-    },"COM10");
+        content:"sms voX"
+    }, "COM15");
+    log.critical("smsId= "+smsId);
 }, 7000);
+
+// {
+//     "status": "success",
+//     "request": "sendSMS",
+//     "data": {
+//        "messageId": "GscRjp9RNwBOP2CfKiTBNLGHZ",
+//        "response": "Successfully Sent to Message Queue"
+//     }
+//  }
+// {
+//     "status": "success",
+//     "request": "SendSMS",
+//     "data": {
+//        "messageId": "GscRjp9RNwBOP2CfKiTBNLGHZ",
+//        "message": "TESTING",
+//        "recipient": "52004896",
+//        "response": "Message Successfully Sent"
+//     }
+//  }
+
+// {
+//     "status": "fail",
+//     "request": "SendSMS",
+//     "data": {
+//        "messageId": "zmY1lxtetfy70Qq0lG5uVongX",
+//        "message": "sms voX",
+//        "recipient": "52004896",
+//        "response": "Message Failed +CMS ERROR: 21"
+//     }
+//  }
 
 function generateToken() { return Math.random().toString(36).substring(2, 15) + '#' + Math.random().toString(36).substring(2, 15) + '#' + Date.now().toString(36); }
 
+/**Exports */
 
-// modem.getOwnNumber(function(num) {
-//     log.debug('NUMBER');
-//     log.debug(num);
-// });
+exports.events=eventEmitter;
+exports.sendUSSD= sendUSSD;
+exports.sendSMS= sendSMS;
+// exports.scanSIM= scanSIM;
+// exports.open= open;
 
-// modem.hangupCall(callback)
 
 
-// modem.on('onNewMessage', function (data) {
-//     log.debug(data); 
-//     if(data.message=='OK') 
-//         modem.executeCommand('ATD+22652004896',(result) => { log.debug(result); });
-// });
-
-// modem.on('onNewMessageIndicator', (data) => { 
-//     log.debug(data);
-// });
 // modem.on('onNewIncomingCall', (result) => { 
 //     log.debug(result); 
 //     modem.executeCommand('ATA',(result) => { log.debug(result); });
@@ -301,7 +423,6 @@ function generateToken() { return Math.random().toString(36).substring(2, 15) + 
 //     log.debug(p);
 // });
 
-// modem.getNetworkSignal((result) => { log.debug(result); });
 // modem.getSimInbox((result) => { log.debug(result); });
 
 // modem.on('onNewIncomingCall', (result) => { 
