@@ -15,9 +15,10 @@ var eventEmitter = new EventEmitter();
 var modemArray={};
 var modemArrayInfo={};
 var CONFIG= {
-    SERIAL_PORT_WATCH_TIMEOUT:5000
+    SERIAL_PORT_SCAN_TIMEOUT:5000,
+    autoRescan:false
 }
-let serialport = serialportgsm.serialport;
+// let serialport = serialportgsm.serialport;
 let options = {
     baudRate: 115200,
     dataBits: 8,
@@ -33,10 +34,23 @@ let options = {
     incomingSMSIndication: true,
 };
 
-scanSerialPorts();
-setInterval(() => {
+function dfault( param, defaultValue){ /*  to enable default parameters in functions */
+	return ( typeof param !== 'undefined' ? param : defaultValue) ;
+}
+
+function open(conf) {
+    CONFIG.autoRescan= dfault(conf.autoRescan, CONFIG.autoRescan);
+    CONFIG.SERIAL_PORT_SCAN_TIMEOUT= dfault(conf.SERIAL_PORT_SCAN_TIMEOUT, CONFIG.SERIAL_PORT_SCAN_TIMEOUT);
+
     scanSerialPorts();
-}, CONFIG.SERIAL_PORT_WATCH_TIMEOUT);
+    if (CONFIG.autoRescan) {
+        setInterval(() => {
+            scanSerialPorts();
+        }, CONFIG.SERIAL_PORT_SCAN_TIMEOUT);
+    }
+}
+
+
 function scanSerialPorts() {
     serialportgsm.list((err, result) => {
         if(err) { log.error(" Failed to list serial ports: "+err); return;}
@@ -60,6 +74,9 @@ function scanSerialPorts() {
                     log.notice("modem at "+port.comName+" is already registered");
             }
         });
+        log.notice("all modem added");
+        eventEmitter.emit("ready");
+
 
         if(occupiedPorts.length>0) { // these are ports were previously used but no more, gotta clean!
             occupiedPorts.forEach(port => {
@@ -121,7 +138,6 @@ function addModem(serialPort) {
                 log.error(initResult);
                 log.warning("Failed to Initialise modem on "+serialPort);
             } else { 
-                eventEmitter.emit("ready");
                 log.notice("Modem on "+serialPort+" Initialised!");
                 modem.info.serialPort= serialPort;
                 
@@ -326,11 +342,16 @@ setTimeout(() => {
 
 function generateToken() { return Math.random().toString(36).substring(2, 15) + '#' + Math.random().toString(36).substring(2, 15) + '#' + Date.now().toString(36); }
 
+function scanSIM() {
+    scanSerialPorts(); 
+}
+
 /**Exports */
 
 exports.events=eventEmitter;
 exports.sendUSSD= sendUSSD;
 exports.sendSMS= sendSMS;
+exports.scanSIM= scanSIM;
 // exports.scanSIM= scanSIM;
 // exports.open= open;
 
