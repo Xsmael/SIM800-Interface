@@ -72,7 +72,8 @@ function scanSerialPorts() {
         }
         // console.log(result);
         // log.warning(modemArrayInfo);
-        eventEmitter.emit("siminfo",modemArrayInfo);
+        log.warning(modemArray);
+        eventEmitter.emit("siminfo",modemArray);
     });
 }
 
@@ -93,7 +94,7 @@ function addModem(serialPort) {
      })
     modem.on('onNewMessage', function (data) {
         log.warning("NEW MESSAGE");
-        log.debug(data); 
+        // log.debug(data); 
         eventEmitter.emit("SMSReceived", {
             id: "NA",
             port: modem.info.serialPort,
@@ -291,7 +292,6 @@ setTimeout(() => {
         destinator:"52004896",
         content:"sms voX"
     }, "COM15");
-    log.critical("smsId= "+smsId);
 }, 7000);
 
 // {
